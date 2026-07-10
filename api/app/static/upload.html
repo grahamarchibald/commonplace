@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Commonplace — Capture (M1)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: oklch(96.5% 0.012 75);
+    --surface: oklch(99% 0.004 75);
+    --surface-2: oklch(93% 0.016 75);
+    --border: oklch(87% 0.016 75);
+    --text: oklch(27% 0.018 75);
+    --text-muted: oklch(52% 0.015 75);
+    --sage: oklch(56% 0.09 155);
+    --sage-soft: oklch(91% 0.035 155);
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Work Sans', sans-serif;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 44px 24px;
+  }
+  h1 { font-family: 'Source Serif 4', serif; font-size: 28px; margin: 0 0 4px; }
+  p.sub { color: var(--text-muted); margin: 0 0 28px; font-size: 14px; }
+  form {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+  input[type=file], input[type=date] {
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  button {
+    font: inherit;
+    font-weight: 600;
+    background: var(--sage);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  #status { font-size: 13px; margin-top: 10px; color: var(--text-muted); }
+  #entries { margin-top: 32px; display: flex; flex-direction: column; gap: 10px; }
+  .entry-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+  }
+  .entry-card .status {
+    background: var(--sage-soft);
+    color: var(--sage);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+  <h1>Capture</h1>
+  <p class="sub">Milestone 1: photograph a page, get it stored. No transcription yet.</p>
+
+  <form id="upload-form">
+    <div>
+      <label for="file">Page photo</label><br />
+      <input type="file" id="file" name="file" accept="image/*" capture="environment" required />
+    </div>
+    <div>
+      <label for="written_date">Date written</label><br />
+      <input type="date" id="written_date" name="written_date" />
+    </div>
+    <button type="submit">Upload</button>
+    <div id="status"></div>
+  </form>
+
+  <div id="entries"></div>
+
+<script>
+  const form = document.getElementById('upload-form');
+  const statusEl = document.getElementById('status');
+  const entriesEl = document.getElementById('entries');
+
+  document.getElementById('written_date').valueAsDate = new Date();
+
+  async function loadEntries() {
+    const res = await fetch('/entries');
+    const entries = await res.json();
+    entriesEl.innerHTML = entries.map(e => `
+      <div class="entry-card">
+        <span>${e.written_date} — ${e.image_count} image(s)</span>
+        <span class="status">${e.status}</span>
+      </div>
+    `).join('');
+  }
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const button = form.querySelector('button');
+    button.disabled = true;
+    statusEl.textContent = 'Uploading…';
+
+    const fd = new FormData();
+    fd.append('file', document.getElementById('file').files[0]);
+    fd.append('written_date', document.getElementById('written_date').value);
+
+    try {
+      const res = await fetch('/entries/upload', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      statusEl.textContent = `Stored entry ${json.entry_id}`;
+      form.reset();
+      document.getElementById('written_date').valueAsDate = new Date();
+      loadEntries();
+    } catch (err) {
+      statusEl.textContent = 'Error: ' + err.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  loadEntries();
+</script>
+</body>
+</html>
