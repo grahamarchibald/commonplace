@@ -12,6 +12,8 @@ CREATE TABLE entries (
   transcript_json JSONB,                 -- [{text, confidence: high|med|low, alternates: [...], bbox}] per word, for the correction UI
   mood          TEXT,                    -- inferred: content | calm | anxious | tired | ... (extend as patterns emerge)
   mood_score    NUMERIC,                 -- optional continuous score if you want finer-grained mood trends than a fixed enum
+  needs_date_review BOOLEAN NOT NULL DEFAULT false, -- true when the date was low-confidence and needs user confirmation
+  detected_date DATE,                    -- the model's best-guess written date from the page (may be NULL)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

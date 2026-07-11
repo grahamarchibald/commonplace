@@ -81,17 +81,19 @@
 </head>
 <body>
   <h1>Capture</h1>
-  <p class="sub">Milestone 1: photograph a page, get it stored. No transcription yet.</p>
+  <p class="sub">Photograph a page and upload it — we transcribe it and read the date off the page automatically. You'll only be asked to confirm the date when it's unclear.</p>
 
   <form id="upload-form">
     <div>
       <label for="file">Page photo</label><br />
       <input type="file" id="file" name="file" accept="image/*" capture="environment" required />
     </div>
-    <div>
-      <label for="written_date">Date written</label><br />
-      <input type="date" id="written_date" name="written_date" />
-    </div>
+    <details>
+      <summary style="cursor:pointer;font-size:13px;color:var(--text-muted)">Set date manually (optional)</summary>
+      <div style="margin-top:8px">
+        <input type="date" id="written_date" name="written_date" />
+      </div>
+    </details>
     <button type="submit">Upload</button>
     <div id="status"></div>
   </form>
@@ -103,18 +105,49 @@
   const statusEl = document.getElementById('status');
   const entriesEl = document.getElementById('entries');
 
-  document.getElementById('written_date').valueAsDate = new Date();
+  function entryCard(e) {
+    if (e.needs_date_review) {
+      // OCR wasn't confident about the date — ask for a quick confirmation,
+      // prefilled with its best guess (or capture date as a fallback).
+      const guess = e.detected_date || e.written_date;
+      return `
+        <div class="entry-card" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span>Couldn't read the date confidently — please confirm</span>
+            <span class="status" style="background:var(--warn-soft);color:var(--warn)">check date</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <input type="date" value="${guess}" data-entry="${e.id}" style="flex:1" />
+            <button type="button" data-confirm="${e.id}" style="padding:8px 14px">Confirm</button>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="entry-card">
+        <span>${e.written_date} — ${e.image_count} image(s)</span>
+        <span class="status">${e.status}</span>
+      </div>`;
+  }
 
   async function loadEntries() {
     const res = await fetch('/entries');
     const entries = await res.json();
-    entriesEl.innerHTML = entries.map(e => `
-      <div class="entry-card">
-        <span>${e.written_date} — ${e.image_count} image(s)</span>
-        <span class="status">${e.status}</span>
-      </div>
-    `).join('');
+    entriesEl.innerHTML = entries.map(entryCard).join('');
   }
+
+  entriesEl.addEventListener('click', async (ev) => {
+    const id = ev.target.getAttribute('data-confirm');
+    if (!id) return;
+    const input = entriesEl.querySelector(`input[data-entry="${id}"]`);
+    if (!input.value) return;
+    ev.target.disabled = true;
+    await fetch(`/entries/${id}/date`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ written_date: input.value }),
+    });
+    loadEntries();
+  });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -124,15 +157,15 @@
 
     const fd = new FormData();
     fd.append('file', document.getElementById('file').files[0]);
-    fd.append('written_date', document.getElementById('written_date').value);
+    const manualDate = document.getElementById('written_date').value;
+    if (manualDate) fd.append('written_date', manualDate);
 
     try {
       const res = await fetch('/entries/upload', { method: 'POST', body: fd });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
-      statusEl.textContent = `Stored entry ${json.entry_id}`;
+      statusEl.textContent = `Uploaded — transcribing and reading the date…`;
       form.reset();
-      document.getElementById('written_date').valueAsDate = new Date();
       loadEntries();
     } catch (err) {
       statusEl.textContent = 'Error: ' + err.message;
@@ -142,6 +175,7 @@
   });
 
   loadEntries();
+  setInterval(loadEntries, 4000); // reflect OCR/date results as they land
 </script>
 </body>
 </html>

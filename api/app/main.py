@@ -18,3 +18,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 @app.get("/")
 def upload_page():
     return FileResponse(STATIC_DIR / "upload.html")
+
+
+@app.get("/entry")
+def entry_page():
+    return FileResponse(STATIC_DIR / "entry.html")
