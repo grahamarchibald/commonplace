@@ -59,6 +59,11 @@ There is no test suite or linter configured yet. `ANTHROPIC_MODEL` (default `cla
 
 `db/schema.sql` is canonical for provisioning a fresh database. Incremental changes go in numbered files under `db/migrations/` (idempotent `ADD COLUMN IF NOT EXISTS` etc.) **and** must be folded back into `schema.sql` so a from-scratch setup matches a migrated one. `mood` is intentionally a loose enum — store whatever the model returns and color-fallback unknown values in the UI rather than hard-validating.
 
-## Environment / secrets
+## OCR backend
 
-OCR requires a real `ANTHROPIC_API_KEY` in `api/.env` (the app calls the Anthropic API directly; Claude Code's own auth does not carry into the running app). Without it, uploads store the photo but the background OCR job fails and the entry lands in `status='error'`.
+`OCR_BACKEND` (in `api/.env`) selects where transcription runs. Both backends return the same `PAGE_SCHEMA`-shaped dict, so nothing downstream changes when you switch.
+
+- **`ollama`** (default in `.env.example`) — a local vision model, no API key, free. Requires the native **Apple-Silicon** Ollama (the Homebrew `/usr/local` build runs under Rosetta with no GPU — install the app from ollama.com instead) plus `ollama pull qwen2.5vl:3b` (`OLLAMA_MODEL`). The 3B model fits an 8 GB machine; use `qwen2.5vl:7b` if you have more RAM. Small local models over-claim date confidence, so `ocr.py` caps the local backend's date rating and always routes dates through the one-click review step.
+- **`anthropic`** — hosted Claude vision. Much better on messy handwriting, seconds per page, but requires a real `ANTHROPIC_API_KEY` in `api/.env` (the app calls the Anthropic API directly; Claude Code's own auth does not carry into the running app).
+
+If the configured backend is unreachable/misconfigured, uploads still store the photo but the background OCR job fails and the entry lands in `status='error'`.

@@ -1,11 +1,14 @@
 import base64
 import json
 
-import anthropic
+import httpx
 
-from .config import ANTHROPIC_MODEL
-
-_client = anthropic.Anthropic()
+from .config import (
+    ANTHROPIC_MODEL,
+    OCR_BACKEND,
+    OLLAMA_HOST,
+    OLLAMA_MODEL,
+)
 
 SYSTEM_PROMPT = (
     "You transcribe a single photographed page from someone's handwritten journal. "
@@ -22,6 +25,8 @@ SYSTEM_PROMPT = (
     "clearly read an unambiguous date; use 'med'/'low' when the digits are unclear or "
     "the day/month order is genuinely ambiguous, and 'none' when no date is present."
 )
+
+USER_PROMPT = "Transcribe this journal page and detect its date."
 
 PAGE_SCHEMA = {
     "type": "object",
@@ -48,12 +53,53 @@ PAGE_SCHEMA = {
 
 
 def transcribe_page(image_bytes: bytes, media_type: str) -> dict:
-    """Call Claude on a photographed journal page. Returns a dict with the ordered
-    word list (per-word confidence + alternates, per OCR_PIPELINE.md) plus the
-    detected written date and how confident the model is in it."""
-    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    """Transcribe a photographed journal page into the ordered word list
+    (per-word confidence + alternates, per OCR_PIPELINE.md) plus the detected
+    written date and its confidence. Dispatches to the configured OCR backend;
+    both backends return the same PAGE_SCHEMA-shaped dict."""
+    if OCR_BACKEND == "ollama":
+        return _transcribe_ollama(image_bytes)
+    return _transcribe_anthropic(image_bytes, media_type)
 
-    response = _client.messages.create(
+
+def _transcribe_ollama(image_bytes: bytes) -> dict:
+    """Local vision model via Ollama — no API key, runs on-device. Uses Ollama's
+    structured-output support (`format` = JSON schema) to force the shape."""
+    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    resp = httpx.post(
+        f"{OLLAMA_HOST}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": USER_PROMPT, "images": [b64]},
+            ],
+            "format": PAGE_SCHEMA,
+            "stream": False,
+            "options": {"temperature": 0},
+        },
+        timeout=600,  # local vision inference on a full page can be slow
+    )
+    resp.raise_for_status()
+    content = resp.json()["message"]["content"]
+    result = json.loads(content)
+
+    # Small local models over-claim date confidence (observed: reading "7/3/26"
+    # as 2023-07-26 and rating it "high"). Never let the local backend auto-apply
+    # a date; cap it so run_ocr always routes to the one-click review step.
+    if result.get("date_confidence") == "high":
+        result["date_confidence"] = "med"
+    return result
+
+
+def _transcribe_anthropic(image_bytes: bytes, media_type: str) -> dict:
+    """Hosted Claude vision. Uses structured JSON output (`output_config.format`
+    + json_schema) to force the shape — not assistant prefill."""
+    import anthropic
+
+    client = anthropic.Anthropic()
+    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    response = client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=4096,
         system=SYSTEM_PROMPT,
@@ -65,12 +111,11 @@ def transcribe_page(image_bytes: bytes, media_type: str) -> dict:
                         "type": "image",
                         "source": {"type": "base64", "media_type": media_type, "data": b64},
                     },
-                    {"type": "text", "text": "Transcribe this journal page and detect its date."},
+                    {"type": "text", "text": USER_PROMPT},
                 ],
             }
         ],
         output_config={"format": {"type": "json_schema", "schema": PAGE_SCHEMA}},
     )
-
     text = next(block.text for block in response.content if block.type == "text")
     return json.loads(text)
