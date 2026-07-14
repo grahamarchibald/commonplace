@@ -1,4 +1,5 @@
 import json
+import traceback
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -14,11 +15,16 @@ router = APIRouter(prefix="/entries", tags=["entries"])
 def run_ocr(entry_id: str, image_bytes: bytes, media_type: str, date_locked: bool = False):
     try:
         result = transcribe_page(image_bytes, media_type)
-    except Exception:
+    except Exception as e:
+        # Surface why OCR failed instead of a bare status='error': store a short
+        # message on the entry (shown in the UI) and log the full traceback.
+        traceback.print_exc()
+        detail = f"{type(e).__name__}: {e}"[:500]
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE entries SET status = 'error', updated_at = now() WHERE id = %s",
-                (entry_id,),
+                "UPDATE entries SET status = 'error', error_detail = %s, updated_at = now() "
+                "WHERE id = %s",
+                (detail, entry_id),
             )
             conn.commit()
         return
@@ -113,7 +119,7 @@ def list_entries():
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT e.id, e.written_date, e.captured_at, e.status, e.mood,
-                      e.needs_date_review, e.detected_date,
+                      e.needs_date_review, e.detected_date, e.error_detail,
                       count(ei.id) AS image_count
                FROM entries e
                LEFT JOIN entry_images ei ON ei.entry_id = e.id

@@ -63,7 +63,14 @@ There is no test suite or linter configured yet. `ANTHROPIC_MODEL` (default `cla
 
 `OCR_BACKEND` (in `api/.env`) selects where transcription runs. Both backends return the same `PAGE_SCHEMA`-shaped dict, so nothing downstream changes when you switch.
 
-- **`ollama`** (default in `.env.example`) — a local vision model, no API key, free. Requires the native **Apple-Silicon** Ollama (the Homebrew `/usr/local` build runs under Rosetta with no GPU — install the app from ollama.com instead) plus `ollama pull qwen2.5vl:3b` (`OLLAMA_MODEL`). The 3B model fits an 8 GB machine; use `qwen2.5vl:7b` if you have more RAM. Small local models over-claim date confidence, so `ocr.py` caps the local backend's date rating and always routes dates through the one-click review step.
-- **`anthropic`** — hosted Claude vision. Much better on messy handwriting, seconds per page, but requires a real `ANTHROPIC_API_KEY` in `api/.env` (the app calls the Anthropic API directly; Claude Code's own auth does not carry into the running app).
+- **`ollama`** (default in `.env.example`) — a local vision model, no API key, free. Requires the native **Apple-Silicon** Ollama (the Homebrew `/usr/local` build runs under Rosetta with no GPU — install the app from ollama.com instead) plus `ollama pull qwen2.5vl:3b` (`OLLAMA_MODEL`). The 3B model fits an 8 GB machine; the 7B swap-thrashes there (unusable) and needs more RAM/GPU. **The local path requests a plain-text transcription, not the per-word JSON schema** — grammar-constrained decoding of the full schema stalls for many minutes on modest hardware. `_transcribe_ollama` synthesizes the `PAGE_SCHEMA` shape from the plain text (words marked `high`, no alternates — per-word confidence is a hosted-only feature) and parses the date from the text with a regex, always routing it to review. Tunables: `OLLAMA_NUM_CTX`, `OLLAMA_TIMEOUT`, `OCR_MAX_DIM` (accuracy vs speed).
+- **`anthropic`** — hosted Claude vision. Much better on messy handwriting, seconds per page, and the full per-word confidence + alternates, but requires a real `ANTHROPIC_API_KEY` in `api/.env` (the app calls the Anthropic API directly; Claude Code's own auth does not carry into the running app).
 
-If the configured backend is unreachable/misconfigured, uploads still store the photo but the background OCR job fails and the entry lands in `status='error'`.
+Before either backend runs, `ocr.py` `_prepare_image` downscales the photo to `OCR_MAX_DIM`
+(default 1568px) on its longest edge and re-encodes to JPEG — a full-res phone photo otherwise
+overflows a local model's context window and is oversized/costly for the hosted API. The original
+full-res image on disk is untouched; only the in-memory copy sent to the model is shrunk.
+
+If the configured backend is unreachable/misconfigured, uploads still store the photo but the
+background OCR job fails and the entry lands in `status='error'` with the reason in
+`entries.error_detail` (shown in the UI; full traceback in the server log).

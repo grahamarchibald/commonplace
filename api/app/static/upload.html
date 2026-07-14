@@ -16,6 +16,10 @@
     --text-muted: oklch(52% 0.015 75);
     --sage: oklch(56% 0.09 155);
     --sage-soft: oklch(91% 0.035 155);
+    --warn: oklch(58% 0.11 70);
+    --warn-soft: oklch(92% 0.045 70);
+    --alert: oklch(55% 0.15 25);
+    --alert-soft: oklch(93% 0.04 25);
   }
   * { box-sizing: border-box; }
   body {
@@ -81,12 +85,12 @@
 </head>
 <body>
   <h1>Capture</h1>
-  <p class="sub">Photograph a page and upload it — we transcribe it and read the date off the page automatically. You'll only be asked to confirm the date when it's unclear.</p>
+  <p class="sub">Photograph one or more pages and upload them — we transcribe each and read the date off the page automatically. You'll only be asked to confirm the date when it's unclear.</p>
 
   <form id="upload-form">
     <div>
-      <label for="file">Page photo</label><br />
-      <input type="file" id="file" name="file" accept="image/*" capture="environment" required />
+      <label for="file">Page photo(s)</label><br />
+      <input type="file" id="file" name="file" accept="image/*" capture="environment" multiple required />
     </div>
     <details>
       <summary style="cursor:pointer;font-size:13px;color:var(--text-muted)">Set date manually (optional)</summary>
@@ -105,7 +109,22 @@
   const statusEl = document.getElementById('status');
   const entriesEl = document.getElementById('entries');
 
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
   function entryCard(e) {
+    if (e.status === 'error') {
+      // Show why OCR failed instead of a bare "error" pill.
+      const detail = e.error_detail || 'Transcription failed.';
+      return `
+        <div class="entry-card" style="flex-direction:column;align-items:stretch;gap:6px;border-color:var(--alert)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <span>${e.written_date} — ${e.image_count} image(s)</span>
+            <span class="status" style="background:var(--alert-soft);color:var(--alert)">error</span>
+          </div>
+          <div style="font-size:12px;color:var(--alert);word-break:break-word">${esc(detail)}</div>
+        </div>`;
+    }
     if (e.needs_date_review) {
       // OCR wasn't confident about the date — ask for a quick confirmation,
       // prefilled with its best guess (or capture date as a fallback).
@@ -152,26 +171,38 @@
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const button = form.querySelector('button');
-    button.disabled = true;
-    statusEl.textContent = 'Uploading…';
-
-    const fd = new FormData();
-    fd.append('file', document.getElementById('file').files[0]);
+    const files = Array.from(document.getElementById('file').files);
+    if (!files.length) return;
     const manualDate = document.getElementById('written_date').value;
-    if (manualDate) fd.append('written_date', manualDate);
 
-    try {
-      const res = await fetch('/entries/upload', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      statusEl.textContent = `Uploaded — transcribing and reading the date…`;
-      form.reset();
-      loadEntries();
-    } catch (err) {
-      statusEl.textContent = 'Error: ' + err.message;
-    } finally {
-      button.disabled = false;
+    button.disabled = true;
+    let done = 0;
+    const failures = [];
+
+    for (const file of files) {
+      done++;
+      statusEl.textContent = files.length > 1
+        ? `Uploading ${done}/${files.length}…`
+        : 'Uploading…';
+      const fd = new FormData();
+      fd.append('file', file);
+      if (manualDate) fd.append('written_date', manualDate);
+      try {
+        const res = await fetch('/entries/upload', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error(await res.text());
+        loadEntries(); // reflect each new entry as it lands
+      } catch (err) {
+        failures.push(`${file.name}: ${err.message}`);
+      }
     }
+
+    const ok = files.length - failures.length;
+    statusEl.textContent = failures.length
+      ? `Uploaded ${ok}/${files.length} — transcribing. Failed: ${failures.join('; ')}`
+      : `Uploaded ${ok} ${ok === 1 ? 'page' : 'pages'} — transcribing and reading the date…`;
+    form.reset();
+    loadEntries();
+    button.disabled = false;
   });
 
   loadEntries();

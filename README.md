@@ -53,24 +53,25 @@ cp ../.env.example .env
 
 ### Choose an OCR backend (in `api/.env`)
 
-**Local Ollama (default in `.env.example`):**
+**Local Ollama (free, on-device — default in `.env.example`):**
 
 ```bash
 # .env
 OCR_BACKEND=ollama
-OLLAMA_MODEL=qwen2.5vl:3b   # 3B fits an 8 GB machine; use qwen2.5vl:7b if you have more RAM
+OLLAMA_MODEL=qwen2.5vl:3b   # then, one-time: `ollama pull qwen2.5vl:3b`
+# OCR_MAX_DIM=1152          # accuracy vs speed dial (see below)
 ```
 
-```bash
-# then, one-time:
-ollama pull qwen2.5vl:3b
-```
+Locally we ask the model for a **plain-text** transcription (the per-word JSON schema is too slow
+under grammar-constrained decoding on modest hardware) and synthesize the word list from it — so
+you get a full, editable transcript but **not** per-word confidence highlighting or alternates
+(those are hosted-only for now). The date is parsed from the text and always routed to the
+one-click confirm. On Apple Silicon use the **native** Ollama app (the Homebrew build runs under
+Rosetta with no GPU). The **3B** model fits an 8 GB machine (~½–a few min/page); the **7B**
+swap-thrashes on 8 GB and needs more RAM/GPU. `OCR_MAX_DIM` trades accuracy for speed
+(1024–1280 is a good local range on 8 GB).
 
-Expect ~1–2 min per page on a small machine, and rougher transcription than the hosted model.
-Because small local models over-claim date confidence, the local backend never auto-applies a
-date — you always get the one-click confirm.
-
-**Hosted Anthropic:**
+**Hosted Anthropic (most accurate, paid):**
 
 ```bash
 # .env
@@ -78,6 +79,11 @@ OCR_BACKEND=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 # ANTHROPIC_MODEL=claude-opus-4-8   # optional override
 ```
+
+Accurate on messy handwriting, seconds per page, per-word confidence + alternates, ~1–2¢/page.
+
+Either way, images are downscaled to `OCR_MAX_DIM` (default 1568px longest edge) before OCR; the
+full-resolution original is still saved to disk.
 
 ## Run
 

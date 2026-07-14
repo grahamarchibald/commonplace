@@ -14,6 +14,7 @@ CREATE TABLE entries (
   mood_score    NUMERIC,                 -- optional continuous score if you want finer-grained mood trends than a fixed enum
   needs_date_review BOOLEAN NOT NULL DEFAULT false, -- true when the date was low-confidence and needs user confirmation
   detected_date DATE,                    -- the model's best-guess written date from the page (may be NULL)
+  error_detail  TEXT,                    -- when status='error', why OCR failed (shown in the UI)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
