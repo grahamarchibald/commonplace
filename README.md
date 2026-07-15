@@ -9,106 +9,76 @@ ROADMAP). `CLAUDE.md` in this repo summarizes the architecture and conventions.
 
 ## Status
 
-**Milestone 2 — real transcription + correction loop.**
+**Milestone 2 — real transcription + correction loop, plus per-entry mood.**
 
-- Capture: photograph a page → stored to disk + Postgres (`entries` / `entry_images`).
-- OCR: a vision model transcribes the page in the background into an ordered word list with
-  per-word confidence + alternate readings, plus the written date read off the page.
-- Date auto-detection: a confident date is applied automatically; an unclear one routes to a
-  one-click confirm instead of blocking the upload.
-- Corrections: fixing a word updates the transcript and logs the change to a `corrections`
-  table (the future fine-tuning dataset).
+- Capture: photograph one or more pages (batch upload) → stored to disk + Postgres.
+- OCR: photos are EXIF-rotated upright, downscaled, and transcribed in the background;
+  failures surface their actual error on the entry card.
+- Date auto-detection: read off the page; anything uncertain routes to a one-click confirm.
+- Corrections: fixing a word updates the transcript and logs to the `corrections` table —
+  the future fine-tuning dataset.
+- Sentiment: each transcript gets a `mood` label + `mood_score` (VADER + a small local
+  emotion classifier), shown as a pill on the entry card.
 
-Not built yet (Milestones 3–6): entity/theme/mood extraction, knowledge graph, search, insights,
-and the real React / React Native clients. The current `app/static/*.html` pages are throwaway
-scaffolding to exercise the pipeline.
+Not built yet (Milestones 3–6): people/theme extraction, knowledge graph, search, insights,
+real React/React Native clients. The `app/static/*.html` pages are throwaway scaffolding.
 
 ## Prerequisites
 
-- **Python 3.11+**
-- **PostgreSQL 16** running locally
-- An **OCR backend** — pick one during setup below:
-  - **Local (free, no API key):** [Ollama](https://ollama.com) with a Qwen2.5-VL model.
-    On Apple Silicon, install the **native** app from ollama.com — the Homebrew `/usr/local`
-    build runs under Rosetta with no GPU and is far slower.
-  - **Hosted (best quality):** an Anthropic API key (billed per call, separate from any
-    Claude subscription).
+- **Python 3.12** — exactly. The local OCR stack (PaddlePaddle) does not support 3.13 yet.
+- **PostgreSQL 16** running locally.
+- ~2 GB disk for local model caches (downloaded automatically on first OCR).
 
 ## Setup
 
 ```bash
-# 1. Database (any local Postgres 16; example uses a Homebrew install)
+# 1. Database
 createdb commonplace
-psql -d commonplace -f api/db/schema.sql          # provision a fresh DB
+psql -d commonplace -f api/db/schema.sql
 
-# 2. Python deps
+# 2. Python deps (Python 3.12!)
 cd api
-python3 -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 3. Config
-cp ../.env.example .env
-#    Edit .env: set DATABASE_URL if yours differs, and choose an OCR backend (next section).
+cp ../.env.example .env    # defaults to the local OCR backend; set DATABASE_URL if yours differs
 ```
 
-### Choose an OCR backend (in `api/.env`)
+## OCR backends (in `api/.env`)
 
-**Local Ollama (free, on-device — default in `.env.example`):**
+**`local` (default — free, fully on-device):** PaddleOCR's detector finds the handwritten
+text lines; Microsoft **TrOCR** (`trocr-base-handwritten`) transcribes each line crop.
+TrOCR is a dedicated recognition model, not a generative VLM — when it can't read a line it
+produces a visible garble rather than inventing plausible prose. Line-level confidence comes
+from the model's beam scores and drives the correction UI tiers. Dates are parsed from the
+transcript and always routed to the one-click confirm. Expect imperfect accuracy on stylized
+multi-color pages — every correction you make accumulates ground truth for the fine-tuning
+path in `OCR_PIPELINE.md`. Knobs: `TROCR_MODEL` (`-small` faster / `-large` more accurate)
+and `OCR_MAX_DIM`.
 
-```bash
-# .env
-OCR_BACKEND=ollama
-OLLAMA_MODEL=qwen2.5vl:3b   # then, one-time: `ollama pull qwen2.5vl:3b`
-# OCR_MAX_DIM=1152          # accuracy vs speed dial (see below)
-```
+**`anthropic` (hosted, most accurate):** Claude vision with structured output — true per-word
+confidence + alternate readings, seconds per page, ~1–2¢/page. Requires `ANTHROPIC_API_KEY`.
 
-Locally we ask the model for a **plain-text** transcription (the per-word JSON schema is too slow
-under grammar-constrained decoding on modest hardware) and synthesize the word list from it — so
-you get a full, editable transcript but **not** per-word confidence highlighting or alternates
-(those are hosted-only for now). The date is parsed from the text and always routed to the
-one-click confirm. On Apple Silicon use the **native** Ollama app (the Homebrew build runs under
-Rosetta with no GPU). The **3B** model fits an 8 GB machine (~½–a few min/page); the **7B**
-swap-thrashes on 8 GB and needs more RAM/GPU. `OCR_MAX_DIM` trades accuracy for speed
-(1024–1280 is a good local range on 8 GB).
-
-**Hosted Anthropic (most accurate, paid):**
-
-```bash
-# .env
-OCR_BACKEND=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-# ANTHROPIC_MODEL=claude-opus-4-8   # optional override
-```
-
-Accurate on messy handwriting, seconds per page, per-word confidence + alternates, ~1–2¢/page.
-
-Either way, images are downscaled to `OCR_MAX_DIM` (default 1568px longest edge) before OCR; the
-full-resolution original is still saved to disk.
+Both backends return the same transcript contract, so switching is a one-line `.env` change.
 
 ## Run
 
 ```bash
-cd api
-source .venv/bin/activate
+cd api && source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open **http://localhost:8000** — the Capture page. Uploaded photos are saved to
-`storage/entries/{entry_id}/` and served back via `/files`.
+Open **http://localhost:8000** — the Capture page. Select one *or several* page photos
+(PNG/JPG; HEIC not yet supported) and upload. Transcription runs in the background, one page
+at a time; entries flip from `processing` to `ready` (or `error` with the reason shown).
 
-## Uploading pages
+CLI upload:
 
-- **In the browser:** open http://localhost:8000, choose a page photo, and upload. The date is
-  read off the page automatically; you're only asked to confirm it when the read is unclear.
-- **From the command line:**
-
-  ```bash
-  curl -X POST http://localhost:8000/entries/upload -F "file=@/path/to/page.jpg"
-  # optionally pin the date and skip detection:  -F "written_date=2026-03-07"
-  ```
-
-Transcription runs in the background, so the upload returns immediately with `status:processing`;
-the entry flips to `ready` (or `error`) once OCR finishes.
+```bash
+curl -X POST http://localhost:8000/entries/upload -F "file=@/path/to/page.jpg"
+# optionally pin the date and skip detection:  -F "written_date=2026-03-07"
+```
 
 ## API quick reference
 
@@ -116,7 +86,7 @@ the entry flips to `ready` (or `error`) once OCR finishes.
 |--------|------|---------|
 | `POST` | `/entries/upload` | Upload a page photo (multipart `file`, optional `written_date`) |
 | `GET`  | `/entries` | List entries (newest first) |
-| `GET`  | `/entries/{id}` | One entry + its images and transcript |
+| `GET`  | `/entries/{id}` | One entry + images + transcript |
 | `POST` | `/entries/{id}/date` | Confirm/override the written date |
 | `POST` | `/entries/{id}/corrections` | Correct one transcribed word (logs to `corrections`) |
 
@@ -125,16 +95,22 @@ the entry flips to `ready` (or `error`) once OCR finishes.
 ```
 api/
   app/
-    main.py            FastAPI app + static UI mount
-    config.py          env/config (OCR backend selection)
-    ocr.py             vision-model OCR (ollama | anthropic), returns PAGE_SCHEMA
-    storage.py         image storage seam (local disk today, S3/R2 later)
-    routes/entries.py  upload, OCR background job, list/get, date + word corrections
-    static/            throwaway HTML UI (capture page)
+    main.py               FastAPI app + static UI mount
+    config.py             env/config (OCR backend selection)
+    ocr/
+      __init__.py         transcribe_page dispatch, image prep (EXIF rotate + downscale),
+                          shared PAGE_SCHEMA contract, OCR job serialization
+      local_backend.py    Paddle-detect + TrOCR-read (free, on-device)
+      anthropic_backend.py  hosted Claude vision
+    nlp/
+      sentiment.py        mood + mood_score (VADER + emotion classifier)
+    storage.py            image storage seam (local disk today, S3/R2 later)
+    routes/entries.py     upload, OCR background job, date + word corrections
+    static/               throwaway HTML UI (capture page)
   db/
-    schema.sql         canonical schema for a fresh database
-    migrations/        incremental, idempotent migrations (fold back into schema.sql)
-storage/entries/       uploaded page images (gitignored)
+    schema.sql            canonical schema for a fresh database
+    migrations/           incremental, idempotent migrations (fold back into schema.sql)
+storage/entries/          uploaded page images (gitignored)
 ```
 
 `api/.env` is gitignored — each machine keeps its own DB URL, backend choice, and any API key.

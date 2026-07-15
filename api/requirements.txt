@@ -6,3 +6,13 @@ python-dotenv==1.0.1
 Pillow==11.1.0
 httpx==0.28.1
 anthropic==0.116.0
+
+# Local OCR backend (Paddle detects text lines, TrOCR reads them).
+# NOTE: paddlepaddle requires Python <= 3.12 — the venv must be built on 3.12.
+paddlepaddle>=3.0,<4
+paddleocr>=3.1,<4
+torch>=2.6,<3
+transformers>=4.48,<5
+
+# Sentiment (mood/mood_score per entry)
+vaderSentiment==3.3.2

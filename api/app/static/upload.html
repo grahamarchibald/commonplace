@@ -141,10 +141,14 @@
           </div>
         </div>`;
     }
+    // Mood pill (populated by the sentiment pass once transcription lands).
+    const mood = e.mood
+      ? `<span class="status" style="background:var(--surface-2);color:var(--text-muted)">${esc(e.mood)}</span>`
+      : '';
     return `
       <div class="entry-card">
         <span>${e.written_date} — ${e.image_count} image(s)</span>
-        <span class="status">${e.status}</span>
+        <span style="display:flex;gap:6px;align-items:center">${mood}<span class="status">${e.status}</span></span>
       </div>`;
   }
 

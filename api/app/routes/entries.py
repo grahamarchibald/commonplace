@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from pydantic import BaseModel
 
 from ..db import get_conn
+from ..nlp.sentiment import analyze as analyze_sentiment
 from ..ocr import transcribe_page
 from ..storage import save_entry_image
 
@@ -32,6 +33,9 @@ def run_ocr(entry_id: str, image_bytes: bytes, media_type: str, date_locked: boo
     words = result["words"]
     raw_text = " ".join(w["text"] for w in words)
 
+    # Mood extraction (NLP_PIPELINE.md) — never fails the entry; (None, None) on error.
+    mood, mood_score = analyze_sentiment(raw_text)
+
     # Only trust the detected date when the model is confident; otherwise flag
     # for a quick user confirmation (prefilled with the model's best guess).
     detected = result.get("detected_date")
@@ -43,26 +47,29 @@ def run_ocr(entry_id: str, image_bytes: bytes, media_type: str, date_locked: boo
             cur.execute(
                 """UPDATE entries
                    SET transcript_json = %s::jsonb, raw_text = %s, status = 'ready',
+                       mood = %s, mood_score = %s,
                        detected_date = %s, needs_date_review = false, updated_at = now()
                    WHERE id = %s""",
-                (json.dumps(words), raw_text, detected, entry_id),
+                (json.dumps(words), raw_text, mood, mood_score, detected, entry_id),
             )
         elif confident:
             cur.execute(
                 """UPDATE entries
                    SET transcript_json = %s::jsonb, raw_text = %s, status = 'ready',
+                       mood = %s, mood_score = %s,
                        written_date = %s, detected_date = %s, needs_date_review = false,
                        updated_at = now()
                    WHERE id = %s""",
-                (json.dumps(words), raw_text, detected, detected, entry_id),
+                (json.dumps(words), raw_text, mood, mood_score, detected, detected, entry_id),
             )
         else:
             cur.execute(
                 """UPDATE entries
                    SET transcript_json = %s::jsonb, raw_text = %s, status = 'ready',
+                       mood = %s, mood_score = %s,
                        detected_date = %s, needs_date_review = true, updated_at = now()
                    WHERE id = %s""",
-                (json.dumps(words), raw_text, detected, entry_id),
+                (json.dumps(words), raw_text, mood, mood_score, detected, entry_id),
             )
         conn.commit()
 
@@ -196,9 +203,13 @@ def correct_word(entry_id: str, correction: WordCorrection):
 
         words[idx] = {"text": correction.corrected_text, "confidence": "high", "alternates": []}
         raw_text = " ".join(w["text"] for w in words)
+        # Text changed → keep the mood honest by recomputing it (cheap, local).
+        mood, mood_score = analyze_sentiment(raw_text)
         cur.execute(
-            "UPDATE entries SET transcript_json = %s::jsonb, raw_text = %s, updated_at = now() WHERE id = %s",
-            (json.dumps(words), raw_text, entry_id),
+            """UPDATE entries SET transcript_json = %s::jsonb, raw_text = %s,
+                   mood = %s, mood_score = %s, updated_at = now()
+               WHERE id = %s""",
+            (json.dumps(words), raw_text, mood, mood_score, entry_id),
         )
         conn.commit()
 
