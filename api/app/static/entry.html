@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Commonplace — Entry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: oklch(96.5% 0.012 75);
+    --surface: oklch(99% 0.004 75);
+    --surface-2: oklch(93% 0.016 75);
+    --border: oklch(87% 0.016 75);
+    --text: oklch(27% 0.018 75);
+    --text-muted: oklch(52% 0.015 75);
+    --sage: oklch(56% 0.09 155);
+    --sage-soft: oklch(91% 0.035 155);
+    --warn: oklch(58% 0.11 70);
+    --warn-soft: oklch(92% 0.045 70);
+    --alert: oklch(55% 0.15 25);
+    --alert-soft: oklch(93% 0.04 25);
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Work Sans', sans-serif;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+  a.back { color: var(--text-muted); text-decoration: none; font-size: 13px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin: 8px 0 6px; flex-wrap: wrap; }
+  h1 { font-family: 'Source Serif 4', serif; font-size: 26px; margin: 0; }
+  .pill {
+    border-radius: 20px; padding: 3px 10px; font-size: 12px; font-weight: 500;
+    background: var(--surface-2); color: var(--text-muted);
+  }
+  .pill.ready { background: var(--sage-soft); color: var(--sage); }
+  p.help { color: var(--text-muted); font-size: 13px; margin: 0 0 20px; }
+  .legend { display: inline-flex; gap: 14px; }
+  .legend .low { border-bottom: 2px dotted var(--alert); }
+  .legend .med { border-bottom: 2px dotted var(--warn); }
+  .legend .ok { background: var(--sage-soft); border-radius: 3px; padding: 0 3px; }
+
+  .panes { display: flex; gap: 20px; align-items: flex-start; }
+  @media (max-width: 900px) { .panes { flex-direction: column; } .pane { width: 100% !important; } }
+  .pane { width: 50%; }
+
+  /* image pane */
+  #imgwrap { position: relative; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
+  #imgwrap img { display: block; width: 100%; height: auto; }
+  .ovl {
+    position: absolute; border-radius: 3px; pointer-events: none;
+    border: 1.5px solid transparent; transition: background .15s, border-color .15s;
+  }
+  .ovl.low { background: color-mix(in oklch, var(--alert) 14%, transparent); border-color: color-mix(in oklch, var(--alert) 45%, transparent); }
+  .ovl.med { background: color-mix(in oklch, var(--warn) 12%, transparent); border-color: color-mix(in oklch, var(--warn) 40%, transparent); }
+  .ovl.hot { background: color-mix(in oklch, var(--sage) 22%, transparent); border-color: var(--sage); }
+
+  /* transcript pane */
+  #lines { display: flex; flex-direction: column; gap: 6px; }
+  .line {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; display: flex; align-items: baseline; gap: 8px;
+    font-size: 16px; line-height: 1.7;
+  }
+  .line.hot { border-color: var(--sage); }
+  .line .words { flex: 1; }
+  .word { cursor: pointer; border-radius: 3px; padding: 0 1px; }
+  .word:hover { background: var(--surface-2); }
+  .word.low { border-bottom: 2px dotted var(--alert); }
+  .word.med { border-bottom: 2px dotted var(--warn); }
+  .word.verified { background: var(--sage-soft); }
+  .okline {
+    font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--text-muted); cursor: pointer; padding: 3px 8px;
+    white-space: nowrap; align-self: center;
+  }
+  .okline:hover { border-color: var(--sage); color: var(--sage); }
+  .okline.done { background: var(--sage-soft); color: var(--sage); border-color: transparent; cursor: default; }
+
+  /* correction popover */
+  #pop {
+    position: absolute; z-index: 10; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.12);
+    display: none; flex-direction: column; gap: 8px; width: 240px;
+  }
+  #pop input {
+    font: inherit; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text); width: 100%;
+  }
+  #pop .alts { display: flex; flex-wrap: wrap; gap: 5px; }
+  #pop .alts button {
+    font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 14px;
+    border: 1px solid var(--border); background: var(--surface-2); cursor: pointer;
+  }
+  #pop .row { display: flex; gap: 6px; }
+  #pop .save {
+    flex: 1; font: inherit; font-weight: 600; font-size: 13px; background: var(--sage);
+    color: white; border: none; border-radius: 7px; padding: 7px; cursor: pointer;
+  }
+  #pop .cancel {
+    font: inherit; font-size: 13px; background: var(--surface-2); color: var(--text-muted);
+    border: none; border-radius: 7px; padding: 7px 10px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <a class="back" href="/">&larr; All entries</a>
+  <header>
+    <h1 id="date">Entry</h1>
+    <span class="pill" id="mood" style="display:none"></span>
+    <span class="pill" id="status"></span>
+  </header>
+  <p class="help">
+    Click any word to correct it — every fix becomes model-training ground truth.
+    <span class="legend"><span class="low">unsure</span> <span class="med">shaky</span> <span class="ok">verified</span></span>
+  </p>
+
+  <div class="panes">
+    <div class="pane">
+      <div id="imgwrap"><img id="page" alt="journal page" /></div>
+    </div>
+    <div class="pane">
+      <div id="lines"></div>
+    </div>
+  </div>
+
+  <div id="pop">
+    <input id="pop-input" type="text" spellcheck="false" />
+    <div class="alts" id="pop-alts"></div>
+    <div class="row">
+      <button class="save" id="pop-save">Save</button>
+      <button class="cancel" id="pop-cancel">Esc</button>
+    </div>
+  </div>
+
+<script>
+  const qs = new URLSearchParams(location.search);
+  const entryId = qs.get('id');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const pop = document.getElementById('pop');
+  let popIndex = null;
+  let entry = null;
+
+  function worstTier(ws) {
+    if (ws.some(w => w.confidence === 'low' && !w.verified)) return 'low';
+    if (ws.some(w => w.confidence === 'med' && !w.verified)) return 'med';
+    return 'ok';
+  }
+
+  function render() {
+    document.getElementById('date').textContent = entry.written_date;
+    document.getElementById('status').textContent = entry.status;
+    document.getElementById('status').className = 'pill ' + entry.status;
+    const moodEl = document.getElementById('mood');
+    if (entry.mood) { moodEl.textContent = entry.mood; moodEl.style.display = ''; }
+
+    if (entry.images && entry.images.length) {
+      document.getElementById('page').src = '/files/' + entry.images[0].storage_key;
+    }
+
+    const words = entry.transcript_json || [];
+    // group words (with their global index) by line; words without line data
+    // (hosted backend) all land in one flow.
+    const lines = new Map();
+    words.forEach((w, i) => {
+      const key = (w.line === undefined || w.line === null) ? -1 : w.line;
+      if (!lines.has(key)) lines.set(key, []);
+      lines.get(key).push({ ...w, i });
+    });
+
+    // transcript pane
+    const linesEl = document.getElementById('lines');
+    linesEl.innerHTML = '';
+    for (const [lineIdx, ws] of lines) {
+      const div = document.createElement('div');
+      div.className = 'line';
+      div.dataset.line = lineIdx;
+      const wordsHtml = ws.map(w => {
+        const cls = ['word', w.verified ? 'verified' : (w.confidence !== 'high' ? w.confidence : '')].join(' ');
+        return `<span class="${cls}" data-i="${w.i}">${esc(w.text)}</span>`;
+      }).join(' ');
+      const allVerified = ws.every(w => w.verified);
+      const okBtn = lineIdx >= 0
+        ? `<button class="okline ${allVerified ? 'done' : ''}" data-line="${lineIdx}">${allVerified ? '✓ verified' : '✓ line is correct'}</button>`
+        : '';
+      div.innerHTML = `<span class="words">${wordsHtml}</span>${okBtn}`;
+      div.addEventListener('mouseenter', () => hot(lineIdx, true));
+      div.addEventListener('mouseleave', () => hot(lineIdx, false));
+      linesEl.appendChild(div);
+    }
+    if (!words.length) linesEl.innerHTML = '<div class="line"><span class="words" style="color:var(--text-muted)">No transcript yet.</span></div>';
+
+    // image overlays (one per line with a bbox)
+    const wrap = document.getElementById('imgwrap');
+    wrap.querySelectorAll('.ovl').forEach(el => el.remove());
+    for (const [lineIdx, ws] of lines) {
+      const bbox = ws[0].bbox;
+      if (lineIdx < 0 || !bbox) continue;
+      const o = document.createElement('div');
+      o.className = 'ovl ' + worstTier(ws);
+      o.dataset.line = lineIdx;
+      const [x0, y0, x1, y1] = bbox;
+      o.style.left = (x0 * 100) + '%';
+      o.style.top = (y0 * 100) + '%';
+      o.style.width = ((x1 - x0) * 100) + '%';
+      o.style.height = ((y1 - y0) * 100) + '%';
+      wrap.appendChild(o);
+    }
+  }
+
+  function hot(lineIdx, on) {
+    document.querySelectorAll(`.ovl[data-line="${lineIdx}"], .line[data-line="${lineIdx}"]`)
+      .forEach(el => el.classList.toggle('hot', on));
+  }
+
+  async function load() {
+    const res = await fetch('/entries/' + entryId);
+    if (!res.ok) { document.getElementById('lines').textContent = 'Entry not found.'; return; }
+    entry = await res.json();
+    render();
+  }
+
+  // --- correction popover ---
+  function openPop(target, i) {
+    popIndex = i;
+    const w = entry.transcript_json[i];
+    document.getElementById('pop-input').value = w.text;
+    const alts = document.getElementById('pop-alts');
+    alts.innerHTML = (w.alternates || []).map(a => `<button type="button">${esc(a)}</button>`).join('');
+    alts.querySelectorAll('button').forEach(b =>
+      b.addEventListener('click', () => { document.getElementById('pop-input').value = b.textContent; }));
+    const r = target.getBoundingClientRect();
+    pop.style.display = 'flex';
+    pop.style.left = Math.min(window.scrollX + r.left, window.scrollX + window.innerWidth - 260) + 'px';
+    pop.style.top = (window.scrollY + r.bottom + 6) + 'px';
+    const input = document.getElementById('pop-input');
+    input.focus(); input.select();
+  }
+  function closePop() { pop.style.display = 'none'; popIndex = null; }
+
+  async function savePop() {
+    const text = document.getElementById('pop-input').value.trim();
+    if (!text || popIndex === null) return closePop();
+    await fetch(`/entries/${entryId}/corrections`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word_index: popIndex, corrected_text: text }),
+    });
+    closePop();
+    load();
+  }
+
+  document.addEventListener('click', async (ev) => {
+    const word = ev.target.closest('.word');
+    const okBtn = ev.target.closest('.okline');
+    if (word) { openPop(word, Number(word.dataset.i)); return; }
+    if (okBtn && !okBtn.classList.contains('done')) {
+      await fetch(`/entries/${entryId}/verify-line`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line: Number(okBtn.dataset.line) }),
+      });
+      load();
+      return;
+    }
+    if (!pop.contains(ev.target)) closePop();
+  });
+  document.getElementById('pop-save').addEventListener('click', savePop);
+  document.getElementById('pop-cancel').addEventListener('click', closePop);
+  document.getElementById('pop-input').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') savePop();
+    if (ev.key === 'Escape') closePop();
+  });
+
+  load();
+</script>
+</body>
+</html>

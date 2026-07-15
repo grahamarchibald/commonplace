@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .config import STORAGE_DIR
 
@@ -26,6 +26,12 @@ def save_entry_image(entry_id: str, filename: str, data: bytes) -> tuple[str, in
     try:
         with Image.open(dest) as img:
             width, height = img.size
+            # Small upright thumbnail for the entry cards / date-confirm UI.
+            # Path is a convention ({entry_id}/thumb.jpg, served via /files) —
+            # no schema column needed.
+            thumb = ImageOps.exif_transpose(img).convert("RGB")
+            thumb.thumbnail((480, 480))
+            thumb.save(entry_dir / "thumb.jpg", format="JPEG", quality=80)
     except Exception:
         pass
 

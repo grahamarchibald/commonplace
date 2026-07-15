@@ -97,7 +97,7 @@ def _recognize_lines(img: Image.Image, boxes: list) -> list[tuple[str, float]]:
         texts = _processor.batch_decode(out.sequences, skip_special_tokens=True)
         confs = torch.exp(out.sequences_scores).tolist()
         lines.extend((t.strip(), c) for t, c in zip(texts, confs))
-    return [(t, c) for t, c in lines if t]
+    return lines  # aligned 1:1 with boxes; empties filtered by the caller
 
 
 def _tier(confidence: float) -> str:
@@ -109,23 +109,42 @@ def _tier(confidence: float) -> str:
 
 
 def transcribe(image_bytes: bytes) -> dict:
-    """PAGE_SCHEMA-shaped result. Words inherit their line's confidence tier;
-    alternates are deferred (the correction UI accepts free-text retyping).
-    The date is parsed from the transcript and capped at 'med' so it always
-    routes to the one-click review step."""
+    """PAGE_SCHEMA-shaped result. Words inherit their line's confidence tier
+    plus the line's geometry: `line` (index) and `bbox` (the line's box as
+    normalized 0-1 fractions of the EXIF-uprighted image). The geometry is what
+    lets the Entry view overlay hard regions on the photo, and what the
+    training-data exporter uses to crop (line image -> ground truth) pairs for
+    TrOCR fine-tuning (OCR_PIPELINE.md). Alternates are deferred (the
+    correction UI accepts free-text retyping). The date is parsed from the
+    transcript and capped at 'med' so it always routes to review."""
     from . import _guess_date_from_text
 
     _load_models()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
     boxes = _detect_line_boxes(img)
-    lines = _recognize_lines(img, boxes) if boxes else []
+    recognized = _recognize_lines(img, boxes) if boxes else []
 
     words = []
-    for text, conf in lines:
+    line_texts = []
+    for box, (text, conf) in zip(boxes, recognized):
+        if not text:
+            continue
+        line_idx = len(line_texts)
+        line_texts.append(text)
         tier = _tier(conf)
-        words.extend({"text": w, "confidence": tier, "alternates": []} for w in text.split())
+        l, t, r, b = box
+        bbox = [
+            round(l / img.width, 4),
+            round(t / img.height, 4),
+            round(r / img.width, 4),
+            round(b / img.height, 4),
+        ]
+        words.extend(
+            {"text": w, "confidence": tier, "alternates": [], "line": line_idx, "bbox": bbox}
+            for w in text.split()
+        )
 
-    raw_text = "\n".join(t for t, _ in lines)
+    raw_text = "\n".join(line_texts)
     detected_date, date_confidence = _guess_date_from_text(raw_text)
     return {"detected_date": detected_date, "date_confidence": date_confidence, "words": words}

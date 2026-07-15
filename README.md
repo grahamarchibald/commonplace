@@ -89,6 +89,25 @@ curl -X POST http://localhost:8000/entries/upload -F "file=@/path/to/page.jpg"
 | `GET`  | `/entries/{id}` | One entry + images + transcript |
 | `POST` | `/entries/{id}/date` | Confirm/override the written date |
 | `POST` | `/entries/{id}/corrections` | Correct one transcribed word (logs to `corrections`) |
+| `POST` | `/entries/{id}/verify-line` | Mark a whole detected line as correct (ground truth) |
+
+## Improving the model
+
+Open any entry (click its card) to reach the **correction workbench** at `/entry?id=…`:
+the page photo renders beside the transcript, with the model's shaky regions boxed on the
+photo and dotted-underlined in the text (red = low confidence, amber = medium). Click a word
+to fix it; click "✓ line is correct" to bless an accurate line. Both actions mark words as
+*verified* ground truth (corrections are also logged to the `corrections` table).
+
+Export the accumulated (line image → true text) pairs for TrOCR fine-tuning:
+
+```bash
+cd api && .venv/bin/python scripts/export_training_data.py   # -> ../training_data/
+```
+
+Each verified line becomes a full-resolution crop + a `manifest.jsonl` row — the input format
+TrOCR fine-tuning consumes (see `OCR_PIPELINE.md`; a few hundred lines is the realistic floor
+before fine-tuning is worth attempting).
 
 ## Layout
 

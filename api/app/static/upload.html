@@ -81,6 +81,15 @@
     font-size: 12px;
     font-weight: 500;
   }
+  .entry-card a.main {
+    display: flex; align-items: center; gap: 12px; flex: 1;
+    color: inherit; text-decoration: none; min-width: 0;
+  }
+  .thumb {
+    width: 54px; height: 54px; object-fit: cover; flex: none;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2);
+  }
+  .thumb.big { width: 88px; height: 88px; }
 </style>
 </head>
 <body>
@@ -113,6 +122,8 @@
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function entryCard(e) {
+    const thumb = (cls) =>
+      `<img class="thumb ${cls || ''}" src="/files/${e.id}/thumb.jpg" alt="" loading="lazy" onerror="this.style.display='none'" />`;
     if (e.status === 'error') {
       // Show why OCR failed instead of a bare "error" pill.
       const detail = e.error_detail || 'Transcription failed.';
@@ -126,18 +137,21 @@
         </div>`;
     }
     if (e.needs_date_review) {
-      // OCR wasn't confident about the date — ask for a quick confirmation,
-      // prefilled with its best guess (or capture date as a fallback).
+      // OCR wasn't confident about the date — show the page photo beside a
+      // prefilled guess so the date can actually be confirmed by eye.
       const guess = e.detected_date || e.written_date;
       return `
-        <div class="entry-card" style="flex-direction:column;align-items:stretch;gap:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span>Couldn't read the date confidently — please confirm</span>
-            <span class="status" style="background:var(--warn-soft);color:var(--warn)">check date</span>
-          </div>
-          <div style="display:flex;gap:8px">
-            <input type="date" value="${guess}" data-entry="${e.id}" style="flex:1" />
-            <button type="button" data-confirm="${e.id}" style="padding:8px 14px">Confirm</button>
+        <div class="entry-card" style="align-items:stretch;gap:12px">
+          <a class="main" href="/entry?id=${e.id}" style="flex:none">${thumb('big')}</a>
+          <div style="flex:1;display:flex;flex-direction:column;gap:8px;justify-content:center;min-width:0">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <span>Couldn't read the date — please confirm</span>
+              <span class="status" style="background:var(--warn-soft);color:var(--warn)">check date</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <input type="date" value="${guess}" data-entry="${e.id}" style="flex:1" />
+              <button type="button" data-confirm="${e.id}" style="padding:8px 14px">Confirm</button>
+            </div>
           </div>
         </div>`;
     }
@@ -147,7 +161,10 @@
       : '';
     return `
       <div class="entry-card">
-        <span>${e.written_date} — ${e.image_count} image(s)</span>
+        <a class="main" href="/entry?id=${e.id}">
+          ${thumb()}
+          <span>${e.written_date} — ${e.image_count} image(s)</span>
+        </a>
         <span style="display:flex;gap:6px;align-items:center">${mood}<span class="status">${e.status}</span></span>
       </div>`;
   }

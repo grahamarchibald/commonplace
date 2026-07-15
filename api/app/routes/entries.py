@@ -201,7 +201,17 @@ def correct_word(entry_id: str, correction: WordCorrection):
             (entry_id, idx, original["text"], correction.corrected_text, original["confidence"]),
         )
 
-        words[idx] = {"text": correction.corrected_text, "confidence": "high", "alternates": []}
+        # Merge (don't replace): keep line/bbox geometry — the training-data
+        # exporter needs it to crop this line from the original photo.
+        # `verified` marks user-blessed ground truth, distinct from the model's
+        # own 'high' claims.
+        words[idx] = {
+            **original,
+            "text": correction.corrected_text,
+            "confidence": "high",
+            "alternates": [],
+            "verified": True,
+        }
         raw_text = " ".join(w["text"] for w in words)
         # Text changed → keep the mood honest by recomputing it (cheap, local).
         mood, mood_score = analyze_sentiment(raw_text)
@@ -214,3 +224,36 @@ def correct_word(entry_id: str, correction: WordCorrection):
         conn.commit()
 
     return {"ok": True}
+
+
+class LineVerification(BaseModel):
+    line: int
+
+
+@router.post("/{entry_id}/verify-line")
+def verify_line(entry_id: str, body: LineVerification):
+    """Mark every word of one detected line as user-verified ground truth —
+    "this line is actually correct". Verified lines (whether confirmed here or
+    fixed word-by-word via corrections) are what the training-data exporter
+    turns into (line crop -> text) fine-tuning pairs."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT transcript_json FROM entries WHERE id = %s", (entry_id,))
+        row = cur.fetchone()
+        if not row or row["transcript_json"] is None:
+            raise HTTPException(404, "entry not found or not yet transcribed")
+
+        words = row["transcript_json"]
+        hit = False
+        for w in words:
+            if w.get("line") == body.line:
+                w["verified"] = True
+                hit = True
+        if not hit:
+            raise HTTPException(400, "no words on that line")
+
+        cur.execute(
+            "UPDATE entries SET transcript_json = %s::jsonb, updated_at = now() WHERE id = %s",
+            (json.dumps(words), entry_id),
+        )
+        conn.commit()
+    return {"ok": True, "line": body.line}
