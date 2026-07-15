@@ -226,6 +226,67 @@ def correct_word(entry_id: str, correction: WordCorrection):
     return {"ok": True}
 
 
+class LineCorrection(BaseModel):
+    line: int
+    corrected_text: str
+
+
+@router.post("/{entry_id}/lines")
+def correct_line(entry_id: str, body: LineCorrection):
+    """Replace one detected line's words with user-supplied ground truth.
+    Handles what word-level corrections can't: deleting spurious tokens,
+    merging/splitting words, or (empty text) removing a line entirely — e.g.
+    when the detector boxed a drawing. The old->new line pair is logged to
+    `corrections` (line-level rows anchor at the line's first word index) and
+    the new words are stamped verified for the training exporter."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT transcript_json FROM entries WHERE id = %s", (entry_id,))
+        row = cur.fetchone()
+        if not row or row["transcript_json"] is None:
+            raise HTTPException(404, "entry not found or not yet transcribed")
+
+        words = row["transcript_json"]
+        line_words = [(i, w) for i, w in enumerate(words) if w.get("line") == body.line]
+        if not line_words:
+            raise HTTPException(400, "no words on that line")
+
+        old_text = " ".join(w["text"] for _, w in line_words)
+        tiers = [w["confidence"] for _, w in line_words]
+        worst = "low" if "low" in tiers else ("med" if "med" in tiers else "high")
+        bbox = line_words[0][1].get("bbox")
+
+        cur.execute(
+            """INSERT INTO corrections (entry_id, word_index, model_text, corrected_text, model_confidence)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (entry_id, line_words[0][0], old_text, body.corrected_text.strip(), worst),
+        )
+
+        new_words = [
+            {"text": t, "confidence": "high", "alternates": [], "line": body.line,
+             "bbox": bbox, "verified": True}
+            for t in body.corrected_text.split()
+        ]
+        rebuilt, inserted = [], False
+        for w in words:
+            if w.get("line") == body.line:
+                if not inserted:
+                    rebuilt.extend(new_words)
+                    inserted = True
+                continue
+            rebuilt.append(w)
+
+        raw_text = " ".join(w["text"] for w in rebuilt)
+        mood, mood_score = analyze_sentiment(raw_text)
+        cur.execute(
+            """UPDATE entries SET transcript_json = %s::jsonb, raw_text = %s,
+                   mood = %s, mood_score = %s, updated_at = now()
+               WHERE id = %s""",
+            (json.dumps(rebuilt), raw_text, mood, mood_score, entry_id),
+        )
+        conn.commit()
+    return {"ok": True, "line": body.line, "words": len(new_words)}
+
+
 class LineVerification(BaseModel):
     line: int
 

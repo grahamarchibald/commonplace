@@ -90,14 +90,17 @@ curl -X POST http://localhost:8000/entries/upload -F "file=@/path/to/page.jpg"
 | `POST` | `/entries/{id}/date` | Confirm/override the written date |
 | `POST` | `/entries/{id}/corrections` | Correct one transcribed word (logs to `corrections`) |
 | `POST` | `/entries/{id}/verify-line` | Mark a whole detected line as correct (ground truth) |
+| `POST` | `/entries/{id}/lines` | Rewrite a whole line as ground truth (empty text deletes the line) |
 
 ## Improving the model
 
 Open any entry (click its card) to reach the **correction workbench** at `/entry?id=…`:
 the page photo renders beside the transcript, with the model's shaky regions boxed on the
 photo and dotted-underlined in the text (red = low confidence, amber = medium). Click a word
-to fix it; click "✓ line is correct" to bless an accurate line. Both actions mark words as
-*verified* ground truth (corrections are also logged to the `corrections` table).
+to fix it; click ✎ to rewrite a whole line as ground truth (fixes tokenization junk — extra
+punctuation, split words; save it empty to delete a line the detector shouldn't have boxed);
+click "✓ line is correct" to bless an accurate line. All actions mark words as *verified*
+ground truth (old→new pairs are also logged to the `corrections` table).
 
 Export the accumulated (line image → true text) pairs for TrOCR fine-tuning:
 

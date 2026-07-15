@@ -80,6 +80,17 @@
   }
   .okline:hover { border-color: var(--sage); color: var(--sage); }
   .okline.done { background: var(--sage-soft); color: var(--sage); border-color: transparent; cursor: default; }
+  .editline {
+    font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--text-muted); cursor: pointer; padding: 3px 8px;
+    align-self: center;
+  }
+  .editline:hover { border-color: var(--sage); color: var(--sage); }
+  .line input.line-edit {
+    flex: 1; font: inherit; padding: 6px 9px; border: 1px solid var(--sage);
+    border-radius: 7px; background: var(--surface); color: var(--text);
+  }
+  .line .hint { font-size: 11px; color: var(--text-muted); align-self: center; white-space: nowrap; }
 
   /* correction popover */
   #pop {
@@ -189,7 +200,10 @@
       const okBtn = lineIdx >= 0
         ? `<button class="okline ${allVerified ? 'done' : ''}" data-line="${lineIdx}">${allVerified ? '✓ verified' : '✓ line is correct'}</button>`
         : '';
-      div.innerHTML = `<span class="words">${wordsHtml}</span>${okBtn}`;
+      const editBtn = lineIdx >= 0
+        ? `<button class="editline" data-edit="${lineIdx}" title="Rewrite the whole line (empty = delete it)">✎</button>`
+        : '';
+      div.innerHTML = `<span class="words">${wordsHtml}</span>${editBtn}${okBtn}`;
       div.addEventListener('mouseenter', () => hot(lineIdx, true));
       div.addEventListener('mouseleave', () => hot(lineIdx, false));
       linesEl.appendChild(div);
@@ -255,10 +269,35 @@
     load();
   }
 
+  // --- whole-line editor (rewrite as ground truth; empty deletes the line) ---
+  function startLineEdit(lineIdx) {
+    const div = document.querySelector(`.line[data-line="${lineIdx}"]`);
+    if (!div || div.querySelector('input')) return;
+    closePop();
+    const current = Array.from(div.querySelectorAll('.word')).map(w => w.textContent).join(' ');
+    div.innerHTML = `
+      <input class="line-edit" type="text" spellcheck="false" />
+      <span class="hint">Enter = save · empty = delete line · Esc = cancel</span>`;
+    const input = div.querySelector('input');
+    input.value = current;
+    input.focus();
+    input.addEventListener('keydown', async (ev) => {
+      if (ev.key === 'Escape') { load(); return; }
+      if (ev.key !== 'Enter') return;
+      await fetch(`/entries/${entryId}/lines`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line: lineIdx, corrected_text: input.value }),
+      });
+      load();
+    });
+  }
+
   document.addEventListener('click', async (ev) => {
     const word = ev.target.closest('.word');
     const okBtn = ev.target.closest('.okline');
+    const editBtn = ev.target.closest('.editline');
     if (word) { openPop(word, Number(word.dataset.i)); return; }
+    if (editBtn) { startLineEdit(Number(editBtn.dataset.edit)); return; }
     if (okBtn && !okBtn.classList.contains('done')) {
       await fetch(`/entries/${entryId}/verify-line`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
